@@ -1,6 +1,6 @@
 pkgbase = flyover
 	pkgdesc = A real-time ADS-B radar scope for your terminal, built for Omarchy
-	pkgver = 0.2.1
+	pkgver = 0.3.0
 	pkgrel = 1
 	url = https://github.com/linuxbren/flyover
 	arch = x86_64
@@ -8,7 +8,7 @@ pkgbase = flyover
 	makedepends = cargo
 	depends = gcc-libs
 	options = !lto
-	source = flyover-0.2.1.tar.gz::https://github.com/linuxbren/flyover/archive/v0.2.1.tar.gz
-	sha256sums = fbae8d0ec57f60f41631b5fd9d6d9c70f6d660660262e5305d086adc61e2bf16
+	source = flyover-0.3.0.tar.gz::https://github.com/linuxbren/flyover/archive/v0.3.0.tar.gz
+	sha256sums = 69e988517a546f9497ac1812057a249c5af092eb2bf8693d9e50c95efa51fa99
 
 pkgname = flyover
