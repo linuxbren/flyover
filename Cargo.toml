@@ -1,6 +1,6 @@
 [package]
 name = "flyover"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 description = "A real-time ADS-B radar scope for your terminal, built for Omarchy"
 license = "MIT"
