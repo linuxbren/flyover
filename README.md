@@ -123,6 +123,8 @@ cargo run --release
 
 ## Bar widget (Omarchy)
 
+<img src="docs/pill-screenshot.png" alt="flyover-pill popup screenshot" width="215">
+
 A companion widget — an ambient aircraft-count pill for the bar that
 launches (or focuses) the scope on click — lives in its own repo,
 [flyover-pill](https://github.com/linuxbren/flyover-pill), so it installs the
