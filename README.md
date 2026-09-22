@@ -3,6 +3,7 @@
 [![CI](https://github.com/linuxbren/flyover/actions/workflows/ci.yml/badge.svg)](https://github.com/linuxbren/flyover/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/flyover.svg)](https://crates.io/crates/flyover)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Changelog](https://img.shields.io/badge/changelog-latest-blue.svg)](CHANGELOG.md)
 
 A real-time ADS-B radar scope, in your terminal.
 
@@ -26,6 +27,27 @@ that shows an ambient aircraft count and launches the scope on click.
   all), animates smoothly everywhere, more of a classic "ASCII radar" look.
 
 Press `v` any time to switch between them.
+
+## Airport & airspace overlays (Sixel only)
+
+The Sixel scope also draws real nearby airport infrastructure as a dim
+backdrop, so you can see traffic in context rather than floating in a void:
+
+- **Runway silhouettes** — real, oriented runway geometry for nearby
+  airports, sourced from [OurAirports](https://ourairports.com/). Dims
+  with distance from center and disappears past the outer range ring, so
+  it never competes with live traffic.
+- **Class B airspace boundaries** — the outer lateral boundary of any
+  nearby Class B airspace, sourced live from the FAA's own airspace data.
+
+To keep this readable, only *towered* airports get a silhouette — Class
+B/C nationwide, plus any Class D/E field within 10nm of your configured
+location (so your own home airport shows up even if it's a small one).
+Both datasets are cached locally (`~/.cache/flyover/`) and refreshed
+roughly monthly, not fetched on every launch.
+
+Braille mode doesn't render either of these — it stays a pure
+character-based renderer by design.
 
 ## Requirements
 
@@ -96,11 +118,13 @@ omarchy plugin add https://github.com/linuxbren/flyover-pill.git --enable
 omarchy bar put bren.flyover --section right
 ```
 
-It resolves the `flyover` binary via `PATH` first, falling back to
-`$HOME/flyover/target/release/flyover` — so it works whether you've
-`cargo install`ed it or just built it in place. Right-click toggles the
-[screensaver](#screensaver-experimental) on/off (see below) once you've set
-that up; left-click always just opens the scope.
+It resolves the `flyover` binary via `PATH` first, falling back to a few
+well-known install locations — so it works whether you've `cargo
+install`ed it, built it in place, or installed it from the AUR.
+Left-click opens a docked popup with its own live mini radar and a
+button to launch the full scope; right-click toggles the
+[screensaver](#screensaver-experimental) on/off (see below) once you've
+set that up.
 
 ## Screensaver (experimental)
 
@@ -129,6 +153,10 @@ for the one-time setup. Once that's done, the bar widget's right-click
   raster output without a live TTY.
 - `flyover --bench` — times the raster + Sixel-encode pipeline (both render
   modes) against an in-memory backend, to diagnose per-frame cost.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
