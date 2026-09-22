@@ -6,6 +6,19 @@ follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-22
+
+Docs-only release — no code changes — so crates.io's rendered README
+(frozen at whatever a version had when published) matches what's
+actually on GitHub.
+
+### Changed
+
+- README: documented the manual PKGBUILD install path (AUR account
+  registrations are closed to new signups right now), updated the hero
+  screenshot to show both render modes side by side, and added a
+  screenshot of the bar widget's popup to the "Bar widget" section.
+
 ## [0.3.0] - 2026-09-22
 
 ### Added
@@ -80,7 +93,8 @@ Initial release.
 - Companion bar widget ([flyover-pill](https://github.com/linuxbren/flyover-pill))
   with an ambient aircraft count, click to launch the scope.
 
-[Unreleased]: https://github.com/linuxbren/flyover/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/linuxbren/flyover/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/linuxbren/flyover/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/linuxbren/flyover/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/linuxbren/flyover/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/linuxbren/flyover/compare/v0.1.0...v0.2.0
