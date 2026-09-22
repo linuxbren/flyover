@@ -1,4 +1,5 @@
 use crate::data::aircraft::Aircraft;
+use crate::data::airports::RunwaySegment;
 use crate::raster::{self, Scene};
 use crate::theme::Palette;
 use crate::trail::TrailStore;
@@ -13,6 +14,7 @@ pub fn render(
     inner: Rect,
     aircraft: &[Aircraft],
     trails: &TrailStore,
+    runways: &[RunwaySegment],
     zoom_radius_nm: f64,
     sweep_angle_deg: f64,
     palette: &Palette,
@@ -34,6 +36,7 @@ pub fn render(
         height_px,
         aircraft,
         trails,
+        runways,
         zoom_radius_nm,
         label_font_px,
         sweep_angle_deg,

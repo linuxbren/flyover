@@ -100,11 +100,30 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
     }
     trails.update(&aircraft);
 
+    // A couple of sample runways (roughly parallel, offset, like a real
+    // airport's layout) so --preview can eyeball the silhouette without
+    // needing network access or a real cache.
+    let runways = vec![
+        data::airports::RunwaySegment {
+            dst_a: 18.0,
+            dir_a: 350.0,
+            dst_b: 20.5,
+            dir_b: 10.0,
+        },
+        data::airports::RunwaySegment {
+            dst_a: 33.0,
+            dir_a: 95.0,
+            dst_b: 35.0,
+            dir_b: 100.0,
+        },
+    ];
+
     let scene = raster::Scene {
         width_px: 900,
         height_px: 900,
         aircraft: &aircraft,
         trails: &trails,
+        runways: &runways,
         zoom_radius_nm: 40.0,
         sweep_angle_deg: 50.0,
         palette: &palette,
@@ -162,6 +181,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
             height_px,
             aircraft: &aircraft,
             trails: &trails,
+            runways: &[],
             zoom_radius_nm: 40.0,
             sweep_angle_deg: 10.0,
             palette: &palette,
@@ -181,6 +201,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
                 "".to_string(),
                 &aircraft,
                 &trails,
+                &[],
                 40.0,
                 sweep_start,
                 &palette,
@@ -211,6 +232,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
                 "".to_string(),
                 &aircraft,
                 &trails,
+                &[],
                 40.0,
                 sweep_start,
                 &palette,
@@ -274,7 +296,9 @@ fn run_screensaver(mode: scope::RenderMode) -> std::io::Result<()> {
     };
 
     let rx = data::fetch::spawn_poller(location.latitude, location.longitude);
+    let airports_rx = data::airports::spawn_loader(location.latitude, location.longitude);
     let mut aircraft: Vec<Aircraft> = Vec::new();
+    let mut runways: Vec<data::airports::RunwaySegment> = Vec::new();
     let mut trails = TrailStore::default();
     let sweep_start = Instant::now();
     let mut theme = ThemeWatcher::new();
@@ -353,6 +377,9 @@ fn run_screensaver(mode: scope::RenderMode) -> std::io::Result<()> {
             trails.update(&list);
             aircraft = list;
         }
+        if let Ok(Ok(list)) = airports_rx.try_recv() {
+            runways = list;
+        }
 
         let title = format!(
             " flyover — {} — {} contact(s) ",
@@ -368,6 +395,7 @@ fn run_screensaver(mode: scope::RenderMode) -> std::io::Result<()> {
                 String::new(),
                 &aircraft,
                 &trails,
+                &runways,
                 DEFAULT_ZOOM_NM,
                 sweep_start,
                 &theme.palette,
@@ -425,7 +453,9 @@ fn main() -> std::io::Result<()> {
     };
 
     let rx = data::fetch::spawn_poller(location.latitude, location.longitude);
+    let airports_rx = data::airports::spawn_loader(location.latitude, location.longitude);
     let mut aircraft: Vec<Aircraft> = Vec::new();
+    let mut runways: Vec<data::airports::RunwaySegment> = Vec::new();
     let mut trails = TrailStore::default();
     let mut last_error: Option<String> = None;
     let mut last_update: Option<Instant> = None;
@@ -496,6 +526,9 @@ fn main() -> std::io::Result<()> {
                 Err(err) => last_error = Some(err),
             }
         }
+        if let Ok(Ok(list)) = airports_rx.try_recv() {
+            runways = list;
+        }
 
         let title = format!(
             " flyover — {} — {} contact(s) — {:.0}nm range ",
@@ -520,6 +553,7 @@ fn main() -> std::io::Result<()> {
                 status,
                 &aircraft,
                 &trails,
+                &runways,
                 zoom_radius_nm,
                 sweep_start,
                 &theme.palette,

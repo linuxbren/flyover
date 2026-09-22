@@ -1,4 +1,5 @@
 use crate::data::aircraft::Aircraft;
+use crate::data::airports::RunwaySegment;
 use crate::geometry::sweep_angle_deg;
 use crate::theme::Palette;
 use crate::trail::TrailStore;
@@ -44,6 +45,9 @@ pub fn render(
     status: String,
     aircraft: &[Aircraft],
     trails: &TrailStore,
+    // Sixel-only (see sixel_scope::render); braille mode never receives
+    // this, by explicit choice — "braille is probably good where it is".
+    runways: &[RunwaySegment],
     zoom_radius_nm: f64,
     sweep_start: Instant,
     palette: &Palette,
@@ -97,6 +101,7 @@ pub fn render(
             inner,
             aircraft,
             trails,
+            runways,
             zoom_radius_nm,
             angle,
             palette,

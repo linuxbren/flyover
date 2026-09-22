@@ -1,4 +1,5 @@
 use crate::data::aircraft::{Aircraft, Altitude};
+use crate::data::airports::RunwaySegment;
 use crate::geometry::{self, bearing_to_xy};
 use crate::theme::Palette;
 use crate::trail::TrailStore;
@@ -72,6 +73,9 @@ pub struct Scene<'a> {
     pub height_px: u32,
     pub aircraft: &'a [Aircraft],
     pub trails: &'a TrailStore,
+    /// Sixel-only backdrop layer (see draw_runways) — braille mode has no
+    /// equivalent, by explicit choice, not an oversight.
+    pub runways: &'a [RunwaySegment],
     pub zoom_radius_nm: f64,
     pub sweep_angle_deg: f64,
     pub palette: &'a Palette,
@@ -106,6 +110,7 @@ pub fn render(scene: &Scene) -> RgbaImage {
     };
 
     draw_rings(&mut pixmap, cx, cy, radius_px, scene.palette.muted);
+    draw_runways(&mut pixmap, scene, &to_px, scene.palette.accent);
     draw_sweep(
         &mut pixmap,
         cx,
@@ -158,6 +163,37 @@ fn draw_rings(pixmap: &mut Pixmap, cx: f32, cy: f32, radius_px: f32, color: Colo
     for i in 1..=RING_COUNT {
         let r = radius_px * f32::from(i as u16) / f32::from(RING_COUNT as u16);
         if let Some(path) = PathBuilder::from_circle(cx, cy, r) {
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
+    }
+}
+
+/// Static backdrop layer: real nearby runways, oriented and sized from
+/// OurAirports data (see `data::airports`), drawn dim so they read as
+/// terrain/infrastructure rather than competing with live traffic. Half
+/// brightness is done the same way the rest of this renderer dims things —
+/// alpha over the dark background — rather than halving the color's own
+/// RGB channels.
+fn draw_runways(
+    pixmap: &mut Pixmap,
+    scene: &Scene,
+    to_px: &dyn Fn(f64, f64) -> (f32, f32),
+    color: Color,
+) {
+    let paint = solid_paint(to_skia(color, 120));
+    let stroke = Stroke {
+        width: 2.0,
+        ..Default::default()
+    };
+    for runway in scene.runways {
+        let (xa, ya) = bearing_to_xy(runway.dst_a, runway.dir_a);
+        let (xb, yb) = bearing_to_xy(runway.dst_b, runway.dir_b);
+        let (xa, ya) = to_px(xa, ya);
+        let (xb, yb) = to_px(xb, yb);
+        let mut pb = PathBuilder::new();
+        pb.move_to(xa, ya);
+        pb.line_to(xb, yb);
+        if let Some(path) = pb.finish() {
             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
     }
