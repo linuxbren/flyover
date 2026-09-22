@@ -68,7 +68,11 @@ pub fn render(
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
         .split(area);
     let scope_area = chunks[0];
     let footer_area = chunks[1];
@@ -144,8 +148,8 @@ fn render_legend(frame: &mut Frame, area: Rect, palette: &Palette) {
         ("▼ Descent", palette.descent),
     ];
 
-    let plain_len: usize = entries.iter().map(|(label, _)| label.len()).sum::<usize>()
-        + (entries.len() - 1) * 2;
+    let plain_len: usize =
+        entries.iter().map(|(label, _)| label.len()).sum::<usize>() + (entries.len() - 1) * 2;
     if area.width as usize <= plain_len {
         // No graceful shrink for this one — a truncated, half-cut-off key
         // would be worse than no key at all. Just skip it on narrow

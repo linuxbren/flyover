@@ -25,7 +25,8 @@ fn download(url: &str) -> Result<Vec<u8>, String> {
 /// per-launch fetch.
 pub fn ensure_cached(url: &str, filename: &str, max_age: Duration) -> Result<PathBuf, String> {
     let dir = cache_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     let path = dir.join(filename);
 
     let fresh = std::fs::metadata(&path)

@@ -74,14 +74,30 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
     // One of each AircraftKind, so this preview doubles as a way to
     // eyeball every icon at once.
     let aircraft = vec![
-        ac("a1", "UAL1234", "B738", "A3", 35000, 420.0, 0.0, "1200", 20.0, 45.0), // Airliner
-        ac("a2", "ENY3937", "E75L", "A2", 8000, 250.0, -1800.0, "1200", 12.0, 200.0), // Regional
-        ac("a3", "N247JH", "C172", "A1", 4500, 110.0, 0.0, "7700", 30.0, 300.0), // Private
-        ac("a4", "EDGE001", "GLF6", "A1", 41000, 480.0, 0.0, "1200", 15.0, 130.0), // BusinessJet
-        ac("a5", "AAL2159", "A321", "A3", 36000, 406.0, 1500.0, "1200", 5.0, 5.0), // Airliner, climbing
-        ac("a6", "N911PD", "H60", "A7", 1200, 90.0, 0.0, "1200", 39.5, 2.0),     // Helicopter
-        ac("a7", "BLIMP01", "", "", 2000, 30.0, 0.0, "1200", 25.0, 250.0),       // Unknown
-        ac("a8", "N55TX", "C172", "A1", -1, 0.0, 0.0, "1200", 10.0, 90.0), // Ground: icon only, no label
+        ac(
+            "a1", "UAL1234", "B738", "A3", 35000, 420.0, 0.0, "1200", 20.0, 45.0,
+        ), // Airliner
+        ac(
+            "a2", "ENY3937", "E75L", "A2", 8000, 250.0, -1800.0, "1200", 12.0, 200.0,
+        ), // Regional
+        ac(
+            "a3", "N247JH", "C172", "A1", 4500, 110.0, 0.0, "7700", 30.0, 300.0,
+        ), // Private
+        ac(
+            "a4", "EDGE001", "GLF6", "A1", 41000, 480.0, 0.0, "1200", 15.0, 130.0,
+        ), // BusinessJet
+        ac(
+            "a5", "AAL2159", "A321", "A3", 36000, 406.0, 1500.0, "1200", 5.0, 5.0,
+        ), // Airliner, climbing
+        ac(
+            "a6", "N911PD", "H60", "A7", 1200, 90.0, 0.0, "1200", 39.5, 2.0,
+        ), // Helicopter
+        ac(
+            "a7", "BLIMP01", "", "", 2000, 30.0, 0.0, "1200", 25.0, 250.0,
+        ), // Unknown
+        ac(
+            "a8", "N55TX", "C172", "A1", -1, 0.0, 0.0, "1200", 10.0, 90.0,
+        ), // Ground: icon only, no label
     ];
 
     let mut trails = TrailStore::default();
@@ -140,8 +156,10 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
             .map(|i| {
                 let angle = f64::from(i) * 45.0;
                 let (center_dst, center_dir, radius) = (22.0, 40.0_f64, 10.0);
-                let dx = center_dst * center_dir.to_radians().sin() + radius * angle.to_radians().sin();
-                let dy = center_dst * center_dir.to_radians().cos() + radius * angle.to_radians().cos();
+                let dx =
+                    center_dst * center_dir.to_radians().sin() + radius * angle.to_radians().sin();
+                let dy =
+                    center_dst * center_dir.to_radians().cos() + radius * angle.to_radians().cos();
                 let dst = dx.hypot(dy);
                 let dir = dx.atan2(dy).to_degrees().rem_euclid(360.0);
                 (dst, dir)

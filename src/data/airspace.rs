@@ -107,8 +107,8 @@ fn load_features() -> Result<Vec<Feature>, String> {
     let path = ensure_cached(CLASS_BC_URL, "class_bc_airspace.geojson", CACHE_MAX_AGE)?;
     let bytes =
         std::fs::read(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    let fc: FeatureCollection =
-        serde_json::from_slice(&bytes).map_err(|e| format!("could not parse airspace geojson: {e}"))?;
+    let fc: FeatureCollection = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("could not parse airspace geojson: {e}"))?;
     Ok(fc.features)
 }
 
@@ -127,8 +127,12 @@ pub fn load_nearby(lat: f64, lon: f64) -> Result<Vec<AirspaceBoundary>, String> 
         if feature.properties.class.as_deref() != Some("B") {
             continue;
         }
-        let Some(name) = &feature.properties.name else { continue };
-        let Some(ring) = outer_ring(&feature.geometry) else { continue };
+        let Some(name) = &feature.properties.name else {
+            continue;
+        };
+        let Some(ring) = outer_ring(&feature.geometry) else {
+            continue;
+        };
         if ring.len() < 3 {
             continue;
         }

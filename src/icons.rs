@@ -76,7 +76,13 @@ fn fill_dot(pixmap: &mut Pixmap, x: f32, y: f32, r: f32, color: tiny_skia::Color
         return;
     };
     let paint = solid_paint(color);
-    pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+    pixmap.fill_path(
+        &path,
+        &paint,
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
 }
 
 fn filled_polygon(
@@ -98,7 +104,13 @@ fn filled_polygon(
     pb.close();
     let Some(path) = pb.finish() else { return };
     let paint = solid_paint(color);
-    pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+    pixmap.fill_path(
+        &path,
+        &paint,
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
 }
 
 fn stroked_segment(
@@ -156,15 +168,15 @@ const JET_POINTS: &[(f32, f32)] = &[
 // points at an arbitrary heading. Same tradeoff applies to every icon
 // here to some degree; this one just needed it most.
 const REGIONAL_POINTS: &[(f32, f32)] = &[
-    (0.0, -0.7),   // nose, blunter than the jet's
-    (0.32, -0.05), // right wing root, leading edge
-    (1.05, 0.35),  // right wingtip — wider than the jet, aft of the trailing edge
-    (0.32, 0.25),  // right wing root, trailing edge
-    (0.28, 0.9),   // tail, right
-    (0.0, 0.78),   // tail, center notch
-    (-0.28, 0.9),  // tail, left
-    (-0.32, 0.25), // left wing root, trailing edge
-    (-1.05, 0.35), // left wingtip
+    (0.0, -0.7),    // nose, blunter than the jet's
+    (0.32, -0.05),  // right wing root, leading edge
+    (1.05, 0.35),   // right wingtip — wider than the jet, aft of the trailing edge
+    (0.32, 0.25),   // right wing root, trailing edge
+    (0.28, 0.9),    // tail, right
+    (0.0, 0.78),    // tail, center notch
+    (-0.28, 0.9),   // tail, left
+    (-0.32, 0.25),  // left wing root, trailing edge
+    (-1.05, 0.35),  // left wingtip
     (-0.32, -0.05), // left wing root, leading edge
 ];
 

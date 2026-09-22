@@ -61,7 +61,10 @@ fn header_index(headers: &csv::StringRecord, name: &str) -> Option<usize> {
 /// directly. Checking both (plus a K-stripped `ident` as a fallback for
 /// rows with no `iata_code`) covers all three shapes without needing to
 /// know which country a given row is from up front.
-fn load_airport_idents(path: &Path, eligible_idents: &HashSet<String>) -> Result<HashSet<String>, String> {
+fn load_airport_idents(
+    path: &Path,
+    eligible_idents: &HashSet<String>,
+) -> Result<HashSet<String>, String> {
     let mut reader = csv::Reader::from_path(path)
         .map_err(|e| format!("could not open {}: {e}", path.display()))?;
     let headers = reader.headers().map_err(|e| e.to_string())?.clone();
@@ -72,7 +75,9 @@ fn load_airport_idents(path: &Path, eligible_idents: &HashSet<String>) -> Result
     let mut idents = HashSet::new();
     for record in reader.records() {
         let record = record.map_err(|e| e.to_string())?;
-        let Some(ident) = record.get(ident_i) else { continue };
+        let Some(ident) = record.get(ident_i) else {
+            continue;
+        };
         let iata = record.get(iata_i).unwrap_or("");
         let k_stripped = ident.strip_prefix('K').filter(|_| ident.len() == 4);
         let matched = (!iata.is_empty() && eligible_idents.contains(iata))
@@ -94,7 +99,9 @@ fn load_runways_near(
     let mut reader = csv::Reader::from_path(path)
         .map_err(|e| format!("could not open {}: {e}", path.display()))?;
     let headers = reader.headers().map_err(|e| e.to_string())?.clone();
-    let col = |name: &str| header_index(&headers, name).ok_or(format!("runways.csv missing '{name}' column"));
+    let col = |name: &str| {
+        header_index(&headers, name).ok_or(format!("runways.csv missing '{name}' column"))
+    };
     let airport_ident_i = col("airport_ident")?;
     let closed_i = col("closed")?;
     let le_lat_i = col("le_latitude_deg")?;
@@ -108,7 +115,9 @@ fn load_runways_near(
         if record.get(closed_i) == Some("1") {
             continue;
         }
-        let Some(ident) = record.get(airport_ident_i) else { continue };
+        let Some(ident) = record.get(airport_ident_i) else {
+            continue;
+        };
         if !idents.contains(ident) {
             continue;
         }

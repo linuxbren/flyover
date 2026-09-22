@@ -268,7 +268,9 @@ fn draw_airspace(
         let paint = solid_paint(to_skia(color, alpha));
 
         let mut points = boundary.points.iter();
-        let Some(&(d0, b0)) = points.next() else { continue };
+        let Some(&(d0, b0)) = points.next() else {
+            continue;
+        };
         let (x0, y0) = bearing_to_xy(d0, b0);
         let (x0, y0) = to_px(x0, y0);
         let mut pb = PathBuilder::new();
@@ -288,7 +290,10 @@ fn draw_airspace(
 fn draw_sweep(pixmap: &mut Pixmap, cx: f32, cy: f32, radius_px: f32, angle_deg: f64, color: Color) {
     let point_at = |a: f64| -> (f32, f32) {
         let rad = a.to_radians();
-        (cx + radius_px * rad.sin() as f32, cy - radius_px * rad.cos() as f32)
+        (
+            cx + radius_px * rad.sin() as f32,
+            cy - radius_px * rad.cos() as f32,
+        )
     };
 
     // Fading trail behind the beam: a fan of filled triangles (center plus
@@ -559,7 +564,15 @@ fn draw_contacts(
                 0 => callsign_color,
                 _ => base,
             };
-            draw_text(pixmap, scene.font, scene.label_font_px, line, chosen.0, y, color);
+            draw_text(
+                pixmap,
+                scene.font,
+                scene.label_font_px,
+                line,
+                chosen.0,
+                y,
+                color,
+            );
         }
         // Redraw the climb/descent glyph on top, in its own color, right
         // where it already landed as part of the altitude line above —
