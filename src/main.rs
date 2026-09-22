@@ -100,10 +100,16 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
     }
     trails.update(&aircraft);
 
-    // A couple of sample runways (roughly parallel, offset, like a real
-    // airport's layout) so --preview can eyeball the silhouette without
-    // needing network access or a real cache.
+    // Sample runways at a spread of distances (close/mid/near-edge/beyond
+    // the 40nm zoom used below) so --preview can eyeball both the
+    // center-to-edge dim fade and the beyond-the-rings cutoff at once.
     let runways = vec![
+        data::airports::RunwaySegment {
+            dst_a: 6.0,
+            dir_a: 260.0,
+            dst_b: 8.0,
+            dir_b: 265.0,
+        },
         data::airports::RunwaySegment {
             dst_a: 18.0,
             dir_a: 350.0,
@@ -115,6 +121,12 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
             dir_a: 95.0,
             dst_b: 35.0,
             dir_b: 100.0,
+        },
+        data::airports::RunwaySegment {
+            dst_a: 45.0,
+            dir_a: 210.0,
+            dst_b: 47.0,
+            dir_b: 215.0,
         },
     ];
 

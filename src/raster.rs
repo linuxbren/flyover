@@ -174,18 +174,40 @@ fn draw_rings(pixmap: &mut Pixmap, cx: f32, cy: f32, radius_px: f32, color: Colo
 /// brightness is done the same way the rest of this renderer dims things —
 /// alpha over the dark background — rather than halving the color's own
 /// RGB channels.
+///
+/// `data::airports::load_nearby` loads everything within a fixed 120nm
+/// (independent of the live zoom level, which the loader has no access to),
+/// so at typical zoom levels this can carry plenty of airports the current
+/// view doesn't need — per feedback that this reads as clutter, brightness
+/// now fades linearly from `RUNWAY_MAX_ALPHA` at the center to fully
+/// transparent at the outer ring, and anything beyond the outer ring
+/// (`zoom_radius_nm`, not the fixed load radius) is skipped outright rather
+/// than drawn at 0 alpha, so panning/zooming never pays to rasterize
+/// off-screen geometry.
+const RUNWAY_MAX_ALPHA: f32 = 140.0;
+
 fn draw_runways(
     pixmap: &mut Pixmap,
     scene: &Scene,
     to_px: &dyn Fn(f64, f64) -> (f32, f32),
     color: Color,
 ) {
-    let paint = solid_paint(to_skia(color, 120));
     let stroke = Stroke {
         width: 2.0,
         ..Default::default()
     };
     for runway in scene.runways {
+        let dst = (runway.dst_a + runway.dst_b) / 2.0;
+        if dst > scene.zoom_radius_nm {
+            continue;
+        }
+        let fade = (1.0 - dst / scene.zoom_radius_nm.max(0.001)) as f32;
+        let alpha = (RUNWAY_MAX_ALPHA * fade).round() as u8;
+        if alpha == 0 {
+            continue;
+        }
+        let paint = solid_paint(to_skia(color, alpha));
+
         let (xa, ya) = bearing_to_xy(runway.dst_a, runway.dir_a);
         let (xb, yb) = bearing_to_xy(runway.dst_b, runway.dir_b);
         let (xa, ya) = to_px(xa, ya);
