@@ -3,9 +3,8 @@ use crate::geometry::bearing_to_xy;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Trail length in fetch cycles, not seconds — at the ~10s poll interval this
-/// is roughly a minute of history, enough to read direction of travel without
-/// cluttering the scope.
-const MAX_TRAIL_POINTS: usize = 6;
+/// is roughly two minutes of history.
+const MAX_TRAIL_POINTS: usize = 12;
 
 #[derive(Default)]
 pub struct TrailStore {

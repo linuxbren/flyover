@@ -1,5 +1,5 @@
 use crate::data::aircraft::{Aircraft, Altitude};
-use crate::geometry::bearing_to_xy;
+use crate::geometry::{self, bearing_to_xy};
 use crate::theme::Palette;
 use crate::trail::TrailStore;
 use image::RgbaImage;
@@ -10,6 +10,62 @@ use tiny_skia::{
 
 const RING_COUNT: u32 = 4;
 const LABEL_ROWS: usize = 3;
+
+/// The 8 directions a contact label can be anchored in relative to its
+/// blip, as (horizontal, vertical) signs: +1/-1 means the label extends
+/// that way from the blip (which then sits at that edge, offset by the
+/// search's padding); 0 means the label is centered on the blip along
+/// that axis instead (used for the 4 cardinal directions — e.g. "below"
+/// centers horizontally and only offsets vertically). See the label
+/// placement search in `draw_contacts` for how these turn into an actual
+/// candidate box.
+const DIRECTIONS: [(i8, i8); 8] = [
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+];
+
+/// Sixel/raster mode rasterizes its own label glyphs rather than relying on
+/// the terminal's font, so it has to pick a size — this scales the detected
+/// cell height. Braille mode has no equivalent knob: its labels are plain
+/// terminal text, always at the terminal's own native size, so this is the
+/// only lever for bringing the two modes' apparent text size in line with
+/// each other.
+///
+/// History: 0.85 (an earlier bump from a smaller constant) still read
+/// noticeably smaller than braille. 1.1 overshot the other way — sixel
+/// read bigger than braille rather than matching it. Braille's own size is
+/// fine as the reference point, just not reproducible via a "cell height
+/// in px" calculation, since most monospace fonts' actual glyph height is
+/// well under the full em-box that implies — so this stays a tunable
+/// scale rather than a fixed ratio derived from font metrics.
+pub const LABEL_FONT_SCALE: f32 = 0.7;
+
+/// Hard ceiling on the derived label size, regardless of how big the
+/// terminal's own cell height is. `omarchy-launch-screensaver` runs the
+/// screensaver terminal at an explicit 18pt font (every supported
+/// terminal — Alacritty/foot/ghostty/kitty — all hardcode `font-size=18`),
+/// deliberately oversized so the stock `ttfx` branding text reads from
+/// across a room. That's the right call for that content, but "match the
+/// terminal's native size" is the wrong instinct for *this* app's dense
+/// data labels once the terminal's own font is that large — without a
+/// cap, the screensaver's labels scale up right along with it. Chosen to
+/// comfortably cover an ordinary terminal's font size while meaningfully
+/// reining in an 18pt one.
+pub const LABEL_FONT_MAX_PX: f32 = 16.0;
+
+/// The actual per-call-site computation — `cell_height_px * LABEL_FONT_SCALE`,
+/// capped at `LABEL_FONT_MAX_PX`. Centralized so every caller applies both
+/// the scale and the cap the same way rather than reimplementing the
+/// `.min()` themselves.
+pub fn label_font_px(cell_height_px: f32) -> f32 {
+    (cell_height_px * LABEL_FONT_SCALE).min(LABEL_FONT_MAX_PX)
+}
 
 pub struct Scene<'a> {
     pub width_px: u32,
@@ -24,6 +80,10 @@ pub struct Scene<'a> {
     /// cell height so labels read at the same size as the surrounding
     /// terminal/bar text instead of an arbitrary guessed constant.
     pub label_font_px: f32,
+    /// Screensaver mode: skip the callsign/altitude/speed label entirely
+    /// for every contact — icons and trails still draw. See scope::render
+    /// for why.
+    pub hide_labels: bool,
 }
 
 pub fn render(scene: &Scene) -> RgbaImage {
@@ -104,9 +164,52 @@ fn draw_rings(pixmap: &mut Pixmap, cx: f32, cy: f32, radius_px: f32, color: Colo
 }
 
 fn draw_sweep(pixmap: &mut Pixmap, cx: f32, cy: f32, radius_px: f32, angle_deg: f64, color: Color) {
-    let rad = angle_deg.to_radians();
-    let ex = cx + radius_px * rad.sin() as f32;
-    let ey = cy - radius_px * rad.cos() as f32;
+    let point_at = |a: f64| -> (f32, f32) {
+        let rad = a.to_radians();
+        (cx + radius_px * rad.sin() as f32, cy - radius_px * rad.cos() as f32)
+    };
+
+    // Fading trail behind the beam: a fan of filled triangles (center plus
+    // two points on the arc), each a shade dimmer than the last, rather
+    // than stroked radial lines. Strokes were the original approach here,
+    // but a fixed-width stroke only touches its neighbor at a fixed radius
+    // — past that, the arc-length between adjacent strokes outgrows the
+    // stroke width and leaves a visible gap, which is exactly what showed
+    // up once the window (and so the radius in pixels) was large enough.
+    // Filled triangles sharing an edge tile with no gap at any radius, so
+    // this is gap-free at any window size rather than needing a step count
+    // tuned to it (see geometry::SWEEP_TRAIL_STEPS).
+    let steps = geometry::SWEEP_TRAIL_STEPS;
+    let step_deg = geometry::SWEEP_TRAIL_SPAN_DEG / f64::from(steps);
+    for step in 0..steps {
+        let t0 = 1.0 - f64::from(step) / f64::from(steps);
+        let t1 = 1.0 - f64::from(step + 1) / f64::from(steps);
+        // A hair of angular overlap on the trailing edge so tiny-skia's
+        // per-shape antialiasing can't leave a faint seam where two
+        // adjacently-filled, differently-alpha'd triangles meet.
+        let overlap_deg = step_deg * 0.15;
+        let (x0, y0) = point_at(angle_deg - f64::from(step) * step_deg);
+        let (x1, y1) = point_at(angle_deg - f64::from(step + 1) * step_deg - overlap_deg);
+        let mut pb = PathBuilder::new();
+        pb.move_to(cx, cy);
+        pb.line_to(x0, y0);
+        pb.line_to(x1, y1);
+        pb.close();
+        let Some(path) = pb.finish() else { continue };
+        // Midpoint alpha of the segment's two edges, so it reads as one
+        // continuous gradient step rather than a hard-edged band.
+        let alpha = (((t0 + t1) / 2.0) * 140.0) as u8;
+        let paint = solid_paint(to_skia(color, alpha));
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    let (ex, ey) = point_at(angle_deg);
 
     // Layered strokes, wide+dim to narrow+bright, simulate a phosphor glow.
     const LAYERS: [(f32, u8); 3] = [(8.0, 30), (3.5, 90), (1.2, 220)];
@@ -132,7 +235,7 @@ fn draw_trails(pixmap: &mut Pixmap, scene: &Scene, to_px: &dyn Fn(f64, f64) -> (
         let base = if ac.is_emergency_squawk() {
             scene.palette.alert
         } else {
-            scene.palette.foreground
+            scene.palette.kind_color(ac.kind())
         };
         let len = trail.len();
         for (i, (tx, ty)) in trail.iter().enumerate() {
@@ -166,11 +269,24 @@ fn draw_contacts(
         .iter()
         .filter(|ac| matches!(ac.dst, Some(d) if d <= scene.zoom_radius_nm))
         .collect();
-    // Stable order keeps label placement from flickering between frames.
-    contacts.sort_by(|a, b| a.hex.cmp(&b.hex));
+    // Closest-first, not the old arbitrary hex order: under real crowding
+    // (an airport's worth of ground traffic, a cluster of helicopters) not
+    // every contact can win a non-overlapping label spot, and the ones
+    // that lose should be the distant/less relevant ones, not whoever
+    // happened to sort first by tail number.
+    contacts.sort_by(|a, b| {
+        a.dst
+            .partial_cmp(&b.dst)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut placed: Vec<LabelBox> = Vec::with_capacity(contacts.len());
-    let gap = (px_per_nm * 0.6).max(4.0);
+    // Padding has to clear the icon's own drawn size, not just its center
+    // point — icons.rs draws well past the bare (px, py) coordinate this
+    // function otherwise treats as a zero-size point, so without this a
+    // small gap still visually touches the icon even though it's
+    // correctly offset from the *position*.
+    let gap = (px_per_nm * 0.9).max(6.0) + crate::icons::ICON_SIZE_PX;
 
     for ac in &contacts {
         let (Some(dst), Some(dir)) = (ac.dst, ac.dir) else {
@@ -184,52 +300,107 @@ fn draw_contacts(
             scene.palette.foreground
         };
 
-        // Soft glow halo behind a bright core dot.
-        fill_circle(pixmap, px, py, 4.5, to_skia(base, 45));
-        fill_circle(pixmap, px, py, 1.4, to_skia(base, 255));
+        crate::icons::draw_icon(
+            pixmap,
+            px,
+            py,
+            ac.track.unwrap_or(0.0),
+            ac.kind(),
+            base,
+            255,
+        );
 
-        let climb = match ac.climb_rate() {
+        // Ground traffic (an airport's ramp/taxiways) is the single
+        // densest source of clutter this app sees — easily dozens of
+        // contacts in a tiny physical radius, which no amount of smarter
+        // label search fixes. Blip only, no label, for anything parked or
+        // taxiing.
+        if matches!(ac.alt_baro, Some(Altitude::Ground)) {
+            continue;
+        }
+        if scene.hide_labels {
+            continue;
+        }
+
+        let climb_rate = ac.climb_rate();
+        let climb_glyph = match climb_rate {
             Some(r) if r > 100.0 => " ▲",
             Some(r) if r < -100.0 => " ▼",
             _ => "",
         };
-        let alt = match ac.alt_baro {
-            Some(Altitude::Feet(ft)) => format!("FL{:03}{climb}", ft / 100),
-            Some(Altitude::Ground) => format!("GND{climb}"),
-            None => format!("?{climb}"),
+        let alt_base = match ac.alt_baro {
+            Some(Altitude::Feet(ft)) => format!("FL{:03}", ft / 100),
+            Some(Altitude::Ground) => "GND".to_string(),
+            None => "?".to_string(),
         };
+        // For width measurement and collision boxing, the full string
+        // (glyph included) — the actual draw below splits it back apart
+        // so the glyph can carry its own climb/descent color.
         let lines = [
             ac.callsign().to_string(),
-            alt,
+            format!("{alt_base}{climb_glyph}"),
             format!("{:.0}kt", ac.gs.unwrap_or(0.0)),
         ];
+        let callsign_color = if ac.is_emergency_squawk() {
+            base
+        } else {
+            scene.palette.kind_color(ac.kind())
+        };
+        let climb_color = if ac.is_emergency_squawk() {
+            None
+        } else {
+            scene.palette.climb_rate_color(climb_rate)
+        };
 
         let (width_px, line_h) = measure(scene.font, scene.label_font_px, &lines);
         let height_px = line_h * LABEL_ROWS as f32;
 
-        let candidates = [
-            (px + gap, py - gap - height_px),
-            (px + gap, py + gap),
-            (px - gap - width_px, py - gap - height_px),
-            (px - gap - width_px, py + gap),
-            (px + gap * 3.0, py - gap * 3.0 - height_px),
-            (px + gap * 3.0, py + gap * 3.0),
-            (px - gap * 3.0 - width_px, py - gap * 3.0 - height_px),
-            (px - gap * 3.0 - width_px, py + gap * 3.0),
-        ];
-
-        let mut chosen = candidates[0];
-        for candidate in candidates {
-            let candidate_box = LabelBox {
-                x: candidate.0,
-                y: candidate.1,
-                w: width_px,
-                h: height_px,
-            };
-            if !placed.iter().any(|p| boxes_overlap(p, &candidate_box)) {
-                chosen = candidate;
-                break;
+        // Corner-anchored search: 8 directions around the blip, each
+        // placing the label so the blip sits at that direction's near
+        // corner (or edge midpoint, for the 4 cardinal directions) of the
+        // label — never the label's center. This is what all 4 of the
+        // original fixed candidates already did (icon at a corner, never
+        // floating in open space away from it); this just extends that to
+        // all 8 directions and adds increasing padding rings on top, so a
+        // label still has a real search to fall back on in a crowded area
+        // without losing the "icon anchors a corner" relationship that
+        // makes the pairing readable at a glance. Ring-major order (try
+        // every direction at the tightest padding before accepting more
+        // padding in any direction), matching the original candidates'
+        // own preference for close-but-any-corner over far-but-preferred.
+        let mut chosen = (px + gap, py - gap - height_px);
+        let mut placed_ok = false;
+        'search: for ring in 0..4 {
+            let pad = gap * (1.0 + ring as f32);
+            for &(h, v) in &DIRECTIONS {
+                let left = match h {
+                    1 => px + pad,
+                    -1 => px - pad - width_px,
+                    _ => px - width_px / 2.0,
+                };
+                let top = match v {
+                    1 => py + pad,
+                    -1 => py - pad - height_px,
+                    _ => py - height_px / 2.0,
+                };
+                let candidate_box = LabelBox {
+                    x: left,
+                    y: top,
+                    w: width_px,
+                    h: height_px,
+                };
+                if !placed.iter().any(|p| boxes_overlap(p, &candidate_box)) {
+                    chosen = (left, top);
+                    placed_ok = true;
+                    break 'search;
+                }
             }
+        }
+        if !placed_ok {
+            // Every ring collided — genuinely no free space nearby. Same
+            // fallback as before: place it anyway, overlapping, rather
+            // than hiding the label entirely.
+            chosen = (px + gap, py - gap - height_px);
         }
 
         // Keep the label fully on-screen even when its contact is near the
@@ -261,28 +432,44 @@ fn draw_contacts(
         // conversion, via an approximate ascent fraction of the row height.
         let baseline_offset = line_h * 0.8;
         for (row, line) in lines.iter().enumerate() {
+            let y = chosen.1 + row as f32 * line_h + baseline_offset;
+            let color = match row {
+                0 => callsign_color,
+                _ => base,
+            };
+            draw_text(pixmap, scene.font, scene.label_font_px, line, chosen.0, y, color);
+        }
+        // Redraw the climb/descent glyph on top, in its own color, right
+        // where it already landed as part of the altitude line above —
+        // simpler than threading multi-color runs through draw_text, at
+        // the cost of rasterizing that one glyph twice.
+        if let Some(color) = climb_color {
+            let alt_row_y = chosen.1 + line_h + baseline_offset;
+            let glyph_x = chosen.0 + text_width(scene.font, scene.label_font_px, &alt_base);
             draw_text(
                 pixmap,
                 scene.font,
                 scene.label_font_px,
-                line,
-                chosen.0,
-                chosen.1 + row as f32 * line_h + baseline_offset,
-                base,
+                climb_glyph,
+                glyph_x,
+                alt_row_y,
+                color,
             );
         }
     }
 }
 
+fn text_width(font: &fontdue::Font, font_px: f32, text: &str) -> f32 {
+    text.chars()
+        .map(|ch| font.metrics(ch, font_px).advance_width)
+        .sum()
+}
+
 fn measure(font: &fontdue::Font, font_px: f32, lines: &[String; LABEL_ROWS]) -> (f32, f32) {
-    let mut max_w = 0.0f32;
-    for line in lines {
-        let mut w = 0.0f32;
-        for ch in line.chars() {
-            w += font.metrics(ch, font_px).advance_width;
-        }
-        max_w = max_w.max(w);
-    }
+    let max_w = lines
+        .iter()
+        .map(|line| text_width(font, font_px, line))
+        .fold(0.0f32, f32::max);
     (max_w, font_px * 1.25)
 }
 

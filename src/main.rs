@@ -2,6 +2,7 @@ mod braille_scope;
 mod data;
 mod font;
 mod geometry;
+mod icons;
 mod raster;
 mod scope;
 mod settings;
@@ -35,6 +36,8 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
     fn ac(
         hex: &str,
         flight: &str,
+        t: &str,
+        category: &str,
         alt_ft: i64,
         gs: f64,
         rate: f64,
@@ -46,8 +49,15 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
             hex: hex.to_string(),
             flight: Some(flight.to_string()),
             r: None,
-            t: None,
-            alt_baro: Some(Altitude::Feet(alt_ft)),
+            t: Some(t.to_string()),
+            // Sentinel: negative alt_ft means "on the ground" rather than
+            // a real negative altitude, so this fixture-only helper can
+            // cover that case too without a second constructor.
+            alt_baro: Some(if alt_ft < 0 {
+                Altitude::Ground
+            } else {
+                Altitude::Feet(alt_ft)
+            }),
             gs: Some(gs),
             track: Some(dir),
             baro_rate: Some(rate),
@@ -57,16 +67,21 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
             lon: None,
             dst: Some(dst),
             dir: Some(dir),
+            category: Some(category.to_string()),
         }
     }
 
+    // One of each AircraftKind, so this preview doubles as a way to
+    // eyeball every icon at once.
     let aircraft = vec![
-        ac("a1", "UAL1234", 35000, 420.0, 0.0, "1200", 20.0, 45.0),
-        ac("a2", "SWA1563", 8000, 250.0, -1800.0, "1200", 12.0, 200.0),
-        ac("a3", "ENY3937", 34000, 445.0, 900.0, "1200", 30.0, 300.0),
-        ac("a4", "N247JH", 5000, 150.0, 0.0, "7700", 15.0, 130.0),
-        ac("a5", "AAL2159", 36000, 406.0, 0.0, "1200", 5.0, 5.0),
-        ac("a6", "EDGE001", 41000, 480.0, 0.0, "1200", 39.5, 2.0),
+        ac("a1", "UAL1234", "B738", "A3", 35000, 420.0, 0.0, "1200", 20.0, 45.0), // Airliner
+        ac("a2", "ENY3937", "E75L", "A2", 8000, 250.0, -1800.0, "1200", 12.0, 200.0), // Regional
+        ac("a3", "N247JH", "C172", "A1", 4500, 110.0, 0.0, "7700", 30.0, 300.0), // Private
+        ac("a4", "EDGE001", "GLF6", "A1", 41000, 480.0, 0.0, "1200", 15.0, 130.0), // BusinessJet
+        ac("a5", "AAL2159", "A321", "A3", 36000, 406.0, 1500.0, "1200", 5.0, 5.0), // Airliner, climbing
+        ac("a6", "N911PD", "H60", "A7", 1200, 90.0, 0.0, "1200", 39.5, 2.0),     // Helicopter
+        ac("a7", "BLIMP01", "", "", 2000, 30.0, 0.0, "1200", 25.0, 250.0),       // Unknown
+        ac("a8", "N55TX", "C172", "A1", -1, 0.0, 0.0, "1200", 10.0, 90.0), // Ground: icon only, no label
     ];
 
     let mut trails = TrailStore::default();
@@ -94,7 +109,8 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
         sweep_angle_deg: 50.0,
         palette: &palette,
         font: &font,
-        label_font_px: 18.0 * 0.85,
+        label_font_px: raster::label_font_px(18.0),
+        hide_labels: false,
     };
     let image = raster::render(&scene);
     image.save(out_path).map_err(std::io::Error::other)?;
@@ -150,7 +166,8 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
             sweep_angle_deg: 10.0,
             palette: &palette,
             font: &font,
-            label_font_px: f32::from(font_size.height) * 0.85,
+            label_font_px: raster::label_font_px(f32::from(font_size.height)),
+            hide_labels: false,
         };
         let image = raster::render(&scene);
         raster_total += t0.elapsed();
@@ -170,6 +187,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
                 &picker,
                 &font,
                 scope::RenderMode::Sixel,
+                false,
             );
         })?;
         draw_total += t1.elapsed();
@@ -199,6 +217,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
                 &picker,
                 &font,
                 scope::RenderMode::Braille,
+                false,
             );
         })?;
         braille_total += t0.elapsed();
@@ -355,6 +374,7 @@ fn run_screensaver(mode: scope::RenderMode) -> std::io::Result<()> {
                 &picker,
                 &font,
                 mode,
+                true,
             );
         })?;
     }
@@ -506,6 +526,7 @@ fn main() -> std::io::Result<()> {
                 &picker,
                 &font,
                 render_mode,
+                false,
             );
         })?;
     }
