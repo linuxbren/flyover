@@ -1,5 +1,6 @@
 use crate::data::aircraft::{Aircraft, Altitude};
 use crate::data::airports::RunwaySegment;
+use crate::data::airspace::AirspaceBoundary;
 use crate::geometry::{self, bearing_to_xy};
 use crate::theme::Palette;
 use crate::trail::TrailStore;
@@ -76,6 +77,8 @@ pub struct Scene<'a> {
     /// Sixel-only backdrop layer (see draw_runways) — braille mode has no
     /// equivalent, by explicit choice, not an oversight.
     pub runways: &'a [RunwaySegment],
+    /// Sixel-only, same as `runways` — Class B airspace outlines.
+    pub airspace: &'a [AirspaceBoundary],
     pub zoom_radius_nm: f64,
     pub sweep_angle_deg: f64,
     pub palette: &'a Palette,
@@ -111,6 +114,7 @@ pub fn render(scene: &Scene) -> RgbaImage {
 
     draw_rings(&mut pixmap, cx, cy, radius_px, scene.palette.muted);
     draw_runways(&mut pixmap, scene, &to_px, scene.palette.accent);
+    draw_airspace(&mut pixmap, scene, &to_px, scene.palette.muted);
     draw_sweep(
         &mut pixmap,
         cx,
@@ -215,6 +219,66 @@ fn draw_runways(
         let mut pb = PathBuilder::new();
         pb.move_to(xa, ya);
         pb.line_to(xb, yb);
+        if let Some(path) = pb.finish() {
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
+    }
+}
+
+/// Same static-backdrop treatment as `draw_runways` (fade-by-distance, cull
+/// past the outer ring) — Class B airspace boundaries, drawn as closed
+/// polylines. Uses `palette.muted`, the same neutral color as the range
+/// rings, rather than `accent` (runways' color): this is regulatory/
+/// reference geometry like the rings, not ground infrastructure like a
+/// runway, and keeping it visually distinct from the runway backdrop avoids
+/// reading one for the other.
+const AIRSPACE_MAX_ALPHA: f32 = 90.0;
+
+fn draw_airspace(
+    pixmap: &mut Pixmap,
+    scene: &Scene,
+    to_px: &dyn Fn(f64, f64) -> (f32, f32),
+    color: Color,
+) {
+    let stroke = Stroke {
+        width: 1.3,
+        ..Default::default()
+    };
+    for boundary in scene.airspace {
+        if boundary.points.len() < 3 {
+            continue;
+        }
+        // The closest approach to home is what determines whether/how
+        // brightly this reads on screen — using it (rather than e.g. the
+        // average) avoids unfairly dimming a boundary that's mostly nearby
+        // just because its far side extends past the outer ring.
+        let min_dst = boundary
+            .points
+            .iter()
+            .map(|(d, _)| *d)
+            .fold(f64::INFINITY, f64::min);
+        if min_dst > scene.zoom_radius_nm {
+            continue;
+        }
+        let fade = (1.0 - min_dst / scene.zoom_radius_nm.max(0.001)) as f32;
+        let alpha = (AIRSPACE_MAX_ALPHA * fade).round() as u8;
+        if alpha == 0 {
+            continue;
+        }
+        let paint = solid_paint(to_skia(color, alpha));
+
+        let mut points = boundary.points.iter();
+        let Some(&(d0, b0)) = points.next() else { continue };
+        let (x0, y0) = bearing_to_xy(d0, b0);
+        let (x0, y0) = to_px(x0, y0);
+        let mut pb = PathBuilder::new();
+        pb.move_to(x0, y0);
+        for &(d, b) in points {
+            let (x, y) = bearing_to_xy(d, b);
+            let (x, y) = to_px(x, y);
+            pb.line_to(x, y);
+        }
+        pb.close();
         if let Some(path) = pb.finish() {
             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }

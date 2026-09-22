@@ -1,5 +1,6 @@
+use super::geo_cache::{ensure_cached, haversine_nm, initial_bearing_deg};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -28,74 +29,6 @@ pub struct RunwaySegment {
     pub dir_b: f64,
 }
 
-fn cache_dir() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home).join(".cache/flyover")
-}
-
-/// Returns a local path with reasonably fresh contents, downloading only
-/// when the cached copy is missing or stale. Falls back to a stale cached
-/// copy if a re-download fails (e.g. offline) rather than losing the
-/// feature entirely for one run.
-fn ensure_cached(url: &str, filename: &str) -> Result<PathBuf, String> {
-    let dir = cache_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-    let path = dir.join(filename);
-
-    let fresh = std::fs::metadata(&path)
-        .and_then(|m| m.modified())
-        .map(|t| t.elapsed().unwrap_or(Duration::MAX) < CACHE_MAX_AGE)
-        .unwrap_or(false);
-    if fresh {
-        return Ok(path);
-    }
-
-    match download(url) {
-        Ok(bytes) => {
-            std::fs::write(&path, &bytes)
-                .map_err(|e| format!("could not write {}: {e}", path.display()))?;
-            Ok(path)
-        }
-        Err(err) => {
-            if path.exists() {
-                Ok(path)
-            } else {
-                Err(err)
-            }
-        }
-    }
-}
-
-fn download(url: &str) -> Result<Vec<u8>, String> {
-    let mut response = ureq::get(url)
-        .call()
-        .map_err(|e| format!("could not download {url}: {e}"))?;
-    response
-        .body_mut()
-        .read_to_vec()
-        .map_err(|e| format!("could not read {url} response body: {e}"))
-}
-
-const EARTH_RADIUS_NM: f64 = 3440.065;
-
-fn haversine_nm(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let (lat1r, lat2r) = (lat1.to_radians(), lat2.to_radians());
-    let dlat = (lat2 - lat1).to_radians();
-    let dlon = (lon2 - lon1).to_radians();
-    let a = (dlat / 2.0).sin().powi(2) + lat1r.cos() * lat2r.cos() * (dlon / 2.0).sin().powi(2);
-    2.0 * EARTH_RADIUS_NM * a.sqrt().clamp(0.0, 1.0).asin()
-}
-
-/// adsb.lol's `dir` is 0 = north, clockwise, same convention this produces —
-/// see `geometry::bearing_to_xy`'s own doc comment.
-fn initial_bearing_deg(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let (lat1r, lat2r) = (lat1.to_radians(), lat2.to_radians());
-    let dlon = (lon2 - lon1).to_radians();
-    let y = dlon.sin() * lat2r.cos();
-    let x = lat1r.cos() * lat2r.sin() - lat1r.sin() * lat2r.cos() * dlon.cos();
-    (y.atan2(x).to_degrees() + 360.0) % 360.0
-}
-
 /// Header-name -> column-index lookup, built once per file. Indexing by
 /// name (rather than relying on csv's serde support matching struct fields
 /// positionally) is more robust to OurAirports adding/reordering columns —
@@ -104,23 +37,42 @@ fn header_index(headers: &csv::StringRecord, name: &str) -> Option<usize> {
     headers.iter().position(|h| h == name)
 }
 
-/// Airport idents worth drawing a runway silhouette for — real fixed-wing
-/// airports, not heliports/balloonports/seaplane bases (no runway shape to
-/// speak of) or closed fields (stale geometry, nothing actually there).
-fn load_airport_idents(path: &Path) -> Result<HashSet<String>, String> {
+/// Airport idents worth drawing a runway silhouette for. Originally "any
+/// real fixed-wing airport" (OurAirports' own large/medium/small `type`),
+/// but with airport silhouettes now paired with the Class B/C airspace
+/// overlay, that let through far more airports than the airspace context
+/// around them — per feedback, narrowed to airports actually inside
+/// controlled Class B or C airspace, which is both a tighter and a more
+/// meaningful filter (it's "airports with real traffic control", not just
+/// "airports big enough to have a paved runway").
+///
+/// `towered_idents` (from `airspace::load_towered_idents`) is the FAA's own
+/// airspace `IDENT` field: for US airports it's the bare 3-letter code
+/// (e.g. "LAX"), matching OurAirports' `iata_code` — NOT `ident`, which is
+/// the 4-letter ICAO form ("KLAX") the FAA field never carries the leading
+/// K on. For the handful of Canadian airports this dataset also includes,
+/// `IDENT` is the full 4-letter ICAO code ("CYYZ"), matching OurAirports'
+/// `ident` directly. Checking both (plus a K-stripped `ident` as a fallback
+/// for rows with no `iata_code`) covers all three shapes without needing to
+/// know which country a given row is from up front.
+fn load_airport_idents(path: &Path, towered_idents: &HashSet<String>) -> Result<HashSet<String>, String> {
     let mut reader = csv::Reader::from_path(path)
         .map_err(|e| format!("could not open {}: {e}", path.display()))?;
     let headers = reader.headers().map_err(|e| e.to_string())?.clone();
     let ident_i = header_index(&headers, "ident").ok_or("airports.csv missing 'ident' column")?;
-    let type_i = header_index(&headers, "type").ok_or("airports.csv missing 'type' column")?;
+    let iata_i =
+        header_index(&headers, "iata_code").ok_or("airports.csv missing 'iata_code' column")?;
 
     let mut idents = HashSet::new();
     for record in reader.records() {
         let record = record.map_err(|e| e.to_string())?;
-        let kind = record.get(type_i).unwrap_or("");
-        if matches!(kind, "large_airport" | "medium_airport" | "small_airport")
-            && let Some(ident) = record.get(ident_i)
-        {
+        let Some(ident) = record.get(ident_i) else { continue };
+        let iata = record.get(iata_i).unwrap_or("");
+        let k_stripped = ident.strip_prefix('K').filter(|_| ident.len() == 4);
+        let matched = (!iata.is_empty() && towered_idents.contains(iata))
+            || towered_idents.contains(ident)
+            || k_stripped.is_some_and(|s| towered_idents.contains(s));
+        if matched {
             idents.insert(ident.to_string());
         }
     }
@@ -179,9 +131,10 @@ fn load_runways_near(
 }
 
 pub fn load_nearby(lat: f64, lon: f64) -> Result<Vec<RunwaySegment>, String> {
-    let airports_path = ensure_cached(AIRPORTS_URL, "airports.csv")?;
-    let runways_path = ensure_cached(RUNWAYS_URL, "runways.csv")?;
-    let idents = load_airport_idents(&airports_path)?;
+    let airports_path = ensure_cached(AIRPORTS_URL, "airports.csv", CACHE_MAX_AGE)?;
+    let runways_path = ensure_cached(RUNWAYS_URL, "runways.csv", CACHE_MAX_AGE)?;
+    let towered_idents = super::airspace::load_towered_idents()?;
+    let idents = load_airport_idents(&airports_path, &towered_idents)?;
     load_runways_near(&runways_path, &idents, lat, lon)
 }
 

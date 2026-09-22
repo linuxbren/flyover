@@ -130,12 +130,32 @@ fn run_preview(out_path: &str) -> std::io::Result<()> {
         },
     ];
 
+    // A rough octagon offset from home (not a real Class B shape, just
+    // something with real geometry to eyeball the closed-loop stroke, fade,
+    // and partial-off-screen behavior at once). Built in a local x/y offset
+    // then converted back to (dst, dir) — fine for a preview fixture, no
+    // need for geodesic precision here.
+    let airspace = vec![data::airspace::AirspaceBoundary {
+        points: (0..8)
+            .map(|i| {
+                let angle = f64::from(i) * 45.0;
+                let (center_dst, center_dir, radius) = (22.0, 40.0_f64, 10.0);
+                let dx = center_dst * center_dir.to_radians().sin() + radius * angle.to_radians().sin();
+                let dy = center_dst * center_dir.to_radians().cos() + radius * angle.to_radians().cos();
+                let dst = dx.hypot(dy);
+                let dir = dx.atan2(dy).to_degrees().rem_euclid(360.0);
+                (dst, dir)
+            })
+            .collect(),
+    }];
+
     let scene = raster::Scene {
         width_px: 900,
         height_px: 900,
         aircraft: &aircraft,
         trails: &trails,
         runways: &runways,
+        airspace: &airspace,
         zoom_radius_nm: 40.0,
         sweep_angle_deg: 50.0,
         palette: &palette,
@@ -194,6 +214,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
             aircraft: &aircraft,
             trails: &trails,
             runways: &[],
+            airspace: &[],
             zoom_radius_nm: 40.0,
             sweep_angle_deg: 10.0,
             palette: &palette,
@@ -213,6 +234,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
                 "".to_string(),
                 &aircraft,
                 &trails,
+                &[],
                 &[],
                 40.0,
                 sweep_start,
@@ -244,6 +266,7 @@ fn run_bench() -> Result<(), Box<dyn std::error::Error>> {
                 "".to_string(),
                 &aircraft,
                 &trails,
+                &[],
                 &[],
                 40.0,
                 sweep_start,
@@ -309,8 +332,10 @@ fn run_screensaver(mode: scope::RenderMode) -> std::io::Result<()> {
 
     let rx = data::fetch::spawn_poller(location.latitude, location.longitude);
     let airports_rx = data::airports::spawn_loader(location.latitude, location.longitude);
+    let airspace_rx = data::airspace::spawn_loader(location.latitude, location.longitude);
     let mut aircraft: Vec<Aircraft> = Vec::new();
     let mut runways: Vec<data::airports::RunwaySegment> = Vec::new();
+    let mut airspace: Vec<data::airspace::AirspaceBoundary> = Vec::new();
     let mut trails = TrailStore::default();
     let sweep_start = Instant::now();
     let mut theme = ThemeWatcher::new();
@@ -392,6 +417,9 @@ fn run_screensaver(mode: scope::RenderMode) -> std::io::Result<()> {
         if let Ok(Ok(list)) = airports_rx.try_recv() {
             runways = list;
         }
+        if let Ok(Ok(list)) = airspace_rx.try_recv() {
+            airspace = list;
+        }
 
         let title = format!(
             " flyover — {} — {} contact(s) ",
@@ -408,6 +436,7 @@ fn run_screensaver(mode: scope::RenderMode) -> std::io::Result<()> {
                 &aircraft,
                 &trails,
                 &runways,
+                &airspace,
                 DEFAULT_ZOOM_NM,
                 sweep_start,
                 &theme.palette,
@@ -466,8 +495,10 @@ fn main() -> std::io::Result<()> {
 
     let rx = data::fetch::spawn_poller(location.latitude, location.longitude);
     let airports_rx = data::airports::spawn_loader(location.latitude, location.longitude);
+    let airspace_rx = data::airspace::spawn_loader(location.latitude, location.longitude);
     let mut aircraft: Vec<Aircraft> = Vec::new();
     let mut runways: Vec<data::airports::RunwaySegment> = Vec::new();
+    let mut airspace: Vec<data::airspace::AirspaceBoundary> = Vec::new();
     let mut trails = TrailStore::default();
     let mut last_error: Option<String> = None;
     let mut last_update: Option<Instant> = None;
@@ -541,6 +572,9 @@ fn main() -> std::io::Result<()> {
         if let Ok(Ok(list)) = airports_rx.try_recv() {
             runways = list;
         }
+        if let Ok(Ok(list)) = airspace_rx.try_recv() {
+            airspace = list;
+        }
 
         let title = format!(
             " flyover — {} — {} contact(s) — {:.0}nm range ",
@@ -566,6 +600,7 @@ fn main() -> std::io::Result<()> {
                 &aircraft,
                 &trails,
                 &runways,
+                &airspace,
                 zoom_radius_nm,
                 sweep_start,
                 &theme.palette,
