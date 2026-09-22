@@ -69,6 +69,21 @@ easiest way to get set up:
 cargo install flyover
 ```
 
+### Arch / Omarchy (PKGBUILD)
+
+Not on the AUR yet, but the PKGBUILD it'll eventually use is already
+here and verified — clone and build it directly with `makepkg`:
+
+```
+git clone https://github.com/linuxbren/flyover.git
+cd flyover/packaging/aur
+makepkg -si
+```
+
+This builds from source and installs like any other Arch package
+(binary, license, and man-adjacent docs under `/usr`), no `cargo`
+install step needed afterward.
+
 ## Build from source
 
 ```
