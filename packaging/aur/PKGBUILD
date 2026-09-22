@@ -1,6 +1,6 @@
 # Maintainer: linuxbren <linuxbren@gmail.com>
 pkgname=flyover
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="A real-time ADS-B radar scope for your terminal, built for Omarchy"
 arch=('x86_64')
@@ -15,7 +15,7 @@ makedepends=('cargo')
 # `cargo build --release` succeeds outside makepkg's LTO-enabled environment.
 options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/linuxbren/flyover/archive/v$pkgver.tar.gz")
-sha256sums=('69e988517a546f9497ac1812057a249c5af092eb2bf8693d9e50c95efa51fa99')
+sha256sums=('643381f6d7f04edeb99863a6761aa07e0a90a8b5aba31f38c9dac58e9b3ac91c')
 
 build() {
   cd "$pkgname-$pkgver"
