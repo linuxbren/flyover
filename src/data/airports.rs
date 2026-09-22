@@ -44,18 +44,24 @@ fn header_index(headers: &csv::StringRecord, name: &str) -> Option<usize> {
 /// around them — per feedback, narrowed to airports actually inside
 /// controlled Class B or C airspace, which is both a tighter and a more
 /// meaningful filter (it's "airports with real traffic control", not just
-/// "airports big enough to have a paved runway").
+/// "airports big enough to have a paved runway"). Nationwide B/C alone then
+/// turned out too narrow the other way — it dropped a real user's own
+/// hometown field entirely — so `eligible_idents` is now the union of that
+/// nationwide B/C list with any Class D/E airport within 10nm of the
+/// configured home location (`airspace::load_towered_idents` ∪
+/// `airspace::load_local_class_de_idents`; see the latter's doc comment for
+/// why D/E stays local-only rather than also going nationwide).
 ///
-/// `towered_idents` (from `airspace::load_towered_idents`) is the FAA's own
-/// airspace `IDENT` field: for US airports it's the bare 3-letter code
-/// (e.g. "LAX"), matching OurAirports' `iata_code` — NOT `ident`, which is
-/// the 4-letter ICAO form ("KLAX") the FAA field never carries the leading
-/// K on. For the handful of Canadian airports this dataset also includes,
-/// `IDENT` is the full 4-letter ICAO code ("CYYZ"), matching OurAirports'
-/// `ident` directly. Checking both (plus a K-stripped `ident` as a fallback
-/// for rows with no `iata_code`) covers all three shapes without needing to
+/// Every ident in `eligible_idents` is the FAA's own airspace `IDENT`
+/// field: for US airports it's the bare 3-letter code (e.g. "LAX"),
+/// matching OurAirports' `iata_code` — NOT `ident`, which is the 4-letter
+/// ICAO form ("KLAX") the FAA field never carries the leading K on. For the
+/// handful of Canadian airports this dataset also includes, `IDENT` is the
+/// full 4-letter ICAO code ("CYYZ"), matching OurAirports' `ident`
+/// directly. Checking both (plus a K-stripped `ident` as a fallback for
+/// rows with no `iata_code`) covers all three shapes without needing to
 /// know which country a given row is from up front.
-fn load_airport_idents(path: &Path, towered_idents: &HashSet<String>) -> Result<HashSet<String>, String> {
+fn load_airport_idents(path: &Path, eligible_idents: &HashSet<String>) -> Result<HashSet<String>, String> {
     let mut reader = csv::Reader::from_path(path)
         .map_err(|e| format!("could not open {}: {e}", path.display()))?;
     let headers = reader.headers().map_err(|e| e.to_string())?.clone();
@@ -69,9 +75,9 @@ fn load_airport_idents(path: &Path, towered_idents: &HashSet<String>) -> Result<
         let Some(ident) = record.get(ident_i) else { continue };
         let iata = record.get(iata_i).unwrap_or("");
         let k_stripped = ident.strip_prefix('K').filter(|_| ident.len() == 4);
-        let matched = (!iata.is_empty() && towered_idents.contains(iata))
-            || towered_idents.contains(ident)
-            || k_stripped.is_some_and(|s| towered_idents.contains(s));
+        let matched = (!iata.is_empty() && eligible_idents.contains(iata))
+            || eligible_idents.contains(ident)
+            || k_stripped.is_some_and(|s| eligible_idents.contains(s));
         if matched {
             idents.insert(ident.to_string());
         }
@@ -133,8 +139,15 @@ fn load_runways_near(
 pub fn load_nearby(lat: f64, lon: f64) -> Result<Vec<RunwaySegment>, String> {
     let airports_path = ensure_cached(AIRPORTS_URL, "airports.csv", CACHE_MAX_AGE)?;
     let runways_path = ensure_cached(RUNWAYS_URL, "runways.csv", CACHE_MAX_AGE)?;
-    let towered_idents = super::airspace::load_towered_idents()?;
-    let idents = load_airport_idents(&airports_path, &towered_idents)?;
+    let mut eligible_idents = super::airspace::load_towered_idents()?;
+    // Best-effort: a nearby-hometown-field exception on top of the
+    // nationwide B/C rule (see load_local_class_de_idents' doc comment) —
+    // if this particular lookup fails, the core B/C list still applies
+    // rather than failing the whole airport load over it.
+    if let Ok(local) = super::airspace::load_local_class_de_idents(lat, lon) {
+        eligible_idents.extend(local);
+    }
+    let idents = load_airport_idents(&airports_path, &eligible_idents)?;
     load_runways_near(&runways_path, &idents, lat, lon)
 }
 

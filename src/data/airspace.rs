@@ -30,6 +30,10 @@ const CACHE_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// headroom than `airports::LOAD_RADIUS_NM`.
 const LOAD_RADIUS_NM: f64 = 150.0;
 
+/// How close a Class D/E airport has to be to count as "local" for
+/// `load_local_class_de_idents` — see that function's doc comment.
+const LOCAL_CLASS_DE_RADIUS_NM: f64 = 10.0;
+
 /// One Class B boundary's outermost ring, already projected into the same
 /// (distance, bearing)-from-home polar form used everywhere else in this
 /// app, as a closed loop (drawing code connects the last point back to the
@@ -163,6 +167,59 @@ pub fn load_towered_idents() -> Result<HashSet<String>, String> {
     Ok(features
         .into_iter()
         .filter_map(|f| f.properties.ident)
+        .collect())
+}
+
+#[derive(Deserialize)]
+struct EsriQueryResponse {
+    features: Vec<EsriFeature>,
+}
+
+#[derive(Deserialize)]
+struct EsriFeature {
+    attributes: EsriAttributes,
+}
+
+#[derive(Deserialize)]
+struct EsriAttributes {
+    #[serde(rename = "IDENT")]
+    ident: Option<String>,
+}
+
+/// Per-feedback exception to the Class B/C-only rule: nationwide B/C alone
+/// missed small hometown fields entirely (a real user's own Hays, KS has
+/// none), so this adds back any Class D or E airport within
+/// `LOCAL_CLASS_DE_RADIUS_NM` of the *configured home location specifically*
+/// — unlike B/C, D/E is far too numerous to apply nationwide without
+/// reintroducing the original noise problem, so this stays local by
+/// construction (server-side spatial query, not a client-side distance
+/// filter over a bulk download).
+///
+/// Class E in particular includes both surface areas tied to one specific
+/// airport (`IDENT` populated, e.g. "HYS" for "HAYS CLASS E2") and broader
+/// extension/transition areas that aren't ("HAYS CLASS E5", "KANSAS CLASS
+/// E5" both carry `IDENT: null`) — confirmed live against Hays, KS during
+/// implementation. Filtering to non-null `IDENT` (`filter_map` below) keeps
+/// only the airport-specific ones for free, no `LOCAL_TYPE` string-matching
+/// needed.
+pub fn load_local_class_de_idents(lat: f64, lon: f64) -> Result<HashSet<String>, String> {
+    let url = format!(
+        "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Class_Airspace/FeatureServer/0/query?geometry={lon},{lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&distance={LOCAL_CLASS_DE_RADIUS_NM}&units=esriSRUnit_NauticalMile&where=CLASS=%27D%27+OR+CLASS=%27E%27&outFields=IDENT&returnGeometry=false&f=json"
+    );
+    // Small per-location result — the cache filename embeds the rounded
+    // coordinates (rather than one fixed name like the nationwide B/C file)
+    // so a different configured location doesn't reuse a stale result, but
+    // this still avoids a live fetch on every single launch.
+    let filename = format!("local_class_de_{lat:.3}_{lon:.3}.json");
+    let path = ensure_cached(&url, &filename, CACHE_MAX_AGE)?;
+    let bytes =
+        std::fs::read(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let resp: EsriQueryResponse = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("could not parse local class D/E response: {e}"))?;
+    Ok(resp
+        .features
+        .into_iter()
+        .filter_map(|f| f.attributes.ident)
         .collect())
 }
 
